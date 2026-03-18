@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pymongo.database import Database
 
 from src.api.dependencies.auth import (
     create_access_token,
@@ -17,11 +16,11 @@ from src.schemas.user import user_helper
 router = APIRouter(prefix="/auth", tags=["Authentication"]) #router instance with prefix and tags for documentation grouping (Swagger)
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register_user(
+async def register_user(
     payload: UserRegister,
-    db: Database = Depends(get_db),
+    db = Depends(get_db),
 ) -> dict:
-    existing_user = db.users.find_one({"username": payload.username})
+    existing_user = await db.users.find_one({"username": payload.username})
 
     if existing_user:
         raise HTTPException(
@@ -35,17 +34,17 @@ def register_user(
         "created_at": datetime.now(timezone.utc),
     }
 
-    result = db.users.insert_one(new_user)
+    result = await db.users.insert_one(new_user)
     new_user["_id"] = result.inserted_id
 
     return user_helper(new_user)
 
 @router.post("/login", response_model=TokenResponse, status_code=status.HTTP_200_OK)
-def login(
+async def login(
     payload: UserLogin,
-    db: Database = Depends(get_db),
+    db = Depends(get_db),
 ) -> dict[str, str]:
-    user = db.users.find_one({"username": payload.username})
+    user = await db.users.find_one({"username": payload.username})
 
     if not user:
         raise HTTPException(
