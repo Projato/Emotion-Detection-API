@@ -21,12 +21,12 @@ API_V1_PREFIX = os.getenv("API_V1_PREFIX", "/api/v1")
 async def lifespan(app: FastAPI):
     logger.info("Starting application...")
 
-    connect_to_mongo()
+    await connect_to_mongo()
     logger.info("MongoDB Atlas connected.")
 
     yield #startup ends here, the app will run until it receives a shutdown signal, at which point the code after yield will execute
 
-    close_mongo_connection()
+    await close_mongo_connection()
     logger.info("MongoDB connection closed.")
 
 
