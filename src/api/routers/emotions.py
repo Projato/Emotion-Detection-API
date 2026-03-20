@@ -31,12 +31,15 @@ async def upload_emotion_image(
 
     for file in files:
         metadata = await validate_image(file) #calls validate_image() from image_service.py to check validity; sinc validate_image async, we await
+        image_bytes = await file.read()
 
         created_record = await create_emotion_record( #calls create_emotion_record() from emotion_service.py to insert a new emotion record into the database with the validated image metadata and current user info
             db=db,
             user_id=current_user.get("sub", "unknown_user"),
             filename=metadata["filename"],
             metadata=metadata,
+            image_bytes=image_bytes,
+            content_type=metadata["content_type"],
         )
 
         created_items.append(emotion_helper(created_record))
