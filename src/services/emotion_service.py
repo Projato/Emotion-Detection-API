@@ -6,7 +6,7 @@ import json
 import os
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from groq import Groq
+from groq import AsyncGroq
 from src.utils.constants import EMOTION_EMOJI_MAP
 
 load_dotenv()
@@ -18,11 +18,11 @@ DEFAULT_VISION_MODEL = os.getenv(
 
 ALLOWED_EMOTIONS=set(EMOTION_EMOJI_MAP.keys())
 
-def _get_groq_client() -> Groq:
+def _get_groq_client() -> AsyncGroq:
     api_key=os.getenv("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError("Missing API key in environment.")
-    return Groq(api_key=api_key)
+    return AsyncGroq(api_key=api_key)
 
 def _build_data(image_bytes: bytes, content_type: str) -> str:
     encoded = base64.b64encode(image_bytes).decode("utf-8")
@@ -50,7 +50,7 @@ def _normalize_emotion(value: str | None)-> str:
 
     return alias_map.get(cleaned, "neutral")
 
-def detect_emotion_with_llm(
+async def detect_emotion_with_llm(
     image_bytes: bytes,
     content_type: str,
     filename: str,
@@ -79,38 +79,42 @@ Rules:
 - Do not include explanation.
 - If uncertain, return "neutral".
 """.strip()
+    
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": image_data_url},
+                        },
+                        {
+                            "type": "text",
+                            "text": f"Filename: {filename}",
+                        },
+                    ],
+                }
+            ],
+        )
 
-    response = client.chat.completions.create(
-        model=model,
-        temperature=0,
-        response_format={"type": "json_object"},
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": image_data_url},
-                    },
-                    {
-                        "type": "text",
-                        "text": f"Filename: {filename}",
-                    },
-                ],
-            }
-        ],
-    )
+        raw_content = response.choices[0].message.content
+        parsed = json.loads(raw_content)
+        emotion = _normalize_emotion(parsed.get("emotion"))
+        emoji = EMOTION_EMOJI_MAP[emotion]
 
-    raw_content = response.choices[0].message.content
-    parsed = json.loads(raw_content)
-    emotion = _normalize_emotion(parsed.get("emotion"))
-    emoji = EMOTION_EMOJI_MAP[emotion]
+        return {
+            "emotion": emotion,
+            "emoji": emoji,
+        }
 
-    return {
-        "emotion": emotion,
-        "emoji": emoji,
-    }
+    except Exception as exc:
+        raise RuntimeError(f"Emotion detection failed: {str(exc)}") from exc
 
 
 async def create_emotion_record( #creates a record in the database with the detected emotion and metadata and inserts to DB, returns the created record
@@ -121,7 +125,7 @@ async def create_emotion_record( #creates a record in the database with the dete
     image_bytes: bytes,
     content_type: str, 
 ) -> dict:
-    detected = detect_emotion_with_llm(
+    detected = await detect_emotion_with_llm(
         image_bytes=image_bytes,
         content_type=content_type,
         filename=filename,
@@ -141,3 +145,37 @@ async def create_emotion_record( #creates a record in the database with the dete
     document["_id"] = result.inserted_id
 
     return document
+
+async def reanalyze_emotion_record(
+    db,
+    emotion_id,
+    user_id: str,
+    filename: str,
+    metadata: dict,
+    image_bytes: bytes,
+    content_type: str,
+) -> dict | None:
+    detected = await detect_emotion_with_llm(
+        image_bytes=image_bytes,
+        content_type=content_type,
+        filename=filename,
+    )
+
+    update_data = {
+        "filename": filename,
+        "emotion": detected["emotion"],
+        "emoji": detected["emoji"],
+        "metadata": metadata,
+        "updated_at": datetime.now(timezone.utc),
+    }
+
+    await db.emotions.update_one(
+        {"_id": emotion_id, "user_id": user_id},
+        {"$set": update_data},
+    )
+
+    updated_record = await db.emotions.find_one(
+        {"_id": emotion_id, "user_id": user_id}
+    )
+
+    return updated_record
