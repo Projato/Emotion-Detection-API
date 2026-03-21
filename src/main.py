@@ -5,8 +5,10 @@ from contextlib import asynccontextmanager #for managing lifespan events in Fast
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from loguru import logger
+from slowapi.middleware import SlowAPIMiddleware
 
 from src.api.dependencies.database import close_mongo_connection, connect_to_mongo
+from src.api.dependencies.limiter import limiter
 from src.api.routers.auth import router as auth_router #auth router for user registration and login, JWT handling, etc.
 from src.api.routers.emotions import router as emotions_router
 
@@ -35,6 +37,9 @@ app = FastAPI(
     version=APP_VERSION,
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter 
+app.add_middleware(SlowAPIMiddleware)
 
 
 app.include_router(auth_router, prefix=API_V1_PREFIX) #including the auth router under the /api/v1 path; this will handle all authentication related endpoints like registration and login, and will be available at /api/v1/auth/...

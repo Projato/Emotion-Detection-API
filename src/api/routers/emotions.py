@@ -3,8 +3,8 @@ Main for emotion related routers, auth, db, image validation, emotion creation a
 """
 from typing import List
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status, Request
+from src.api.dependencies.limiter import limiter
 from src.api.dependencies.auth import get_current_user #auth dependency to get current user info from JWT, extract current JWT payload
 from src.api.dependencies.database import get_db #db dependency to get MongoDB database object into route functions for db operations
 from src.schemas.emotion import emotion_helper
@@ -19,7 +19,9 @@ router = APIRouter(prefix="/emotions", tags=["Emotions"]) #grouping all emotion 
 
 
 @router.post("", status_code=status.HTTP_201_CREATED) #main upload route for emotion images; accepts multipart/form-data with file upload, validates image, creates emotion record in db, and returns formatted response
+@limiter.limit("2/minute")
 async def upload_emotion_image(
+    request: Request, 
     files: List[UploadFile] = File(...), #expects a file upload in the request; File(...) indicates it's required and should be treated as a file input
     db = Depends(get_db), #fastapi calls get_db() from database.py to yield a MongoDB database object and injects it into this route function for db operations
     current_user: dict = Depends(get_current_user), #fastapi calls get_current_user() from auth.py to extract and validate the JWT from the request, return dict
