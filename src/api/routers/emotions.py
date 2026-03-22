@@ -62,7 +62,9 @@ async def upload_emotion_image(
 
 
 @router.get("", status_code=status.HTTP_200_OK) #get all emotion records for the current user; queries the database for records matching the user_id from JWT, formats them with emotion_helper, and returns in a list
+@limiter.limit("10/minute")
 async def get_all_emotions(
+    request: Request,
     db = Depends(get_db),
     current_user: dict = Depends(get_current_user), #injecting current user payload
 ) -> dict:
@@ -99,7 +101,9 @@ async def get_emotion_by_id(
     return {"data": emotion_helper(record)}
 
 @router.put("/{emotion_id}", status_code=status.HTTP_200_OK)
+@limiter.limit("2/minute")
 async def update_emotion_record(
+    request: Request,
     emotion_id: str,
     file: UploadFile = File(...),
     db=Depends(get_db),
@@ -147,7 +151,9 @@ async def update_emotion_record(
 
 
 @router.delete("/{emotion_id}", status_code=status.HTTP_200_OK)
+@limiter.limit("2/minute")
 async def delete_emotion_record(
+    request: Request,
     emotion_id: str,
     db=Depends(get_db),
     current_user: dict = Depends(get_current_user),
