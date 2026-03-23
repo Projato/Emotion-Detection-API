@@ -1,6 +1,7 @@
 """
 Main for emotion related routers, auth, db, image validation, emotion creation and formatting helpers.
 """
+from loguru import logger
 from typing import List
 from bson import ObjectId
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status, Request
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/emotions", tags=["Emotions"]) #grouping all emotion 
 
 
 @router.post("", status_code=status.HTTP_201_CREATED) #main upload route for emotion images; accepts multipart/form-data with file upload, validates image, creates emotion record in db, and returns formatted response
-@limiter.limit("2/minute")
+@limiter.limit("5/minute")
 async def upload_emotion_image(
     request: Request, 
     files: List[UploadFile] = File(...), #expects a file upload in the request; File(...) indicates it's required and should be treated as a file input
@@ -48,6 +49,9 @@ async def upload_emotion_image(
                 content_type=metadata["content_type"],
             )
         except RuntimeError as exc:
+            logger.error(
+                f"POST /emotions failed during LLM processing | user_id={current_user.get('sub')} filename={metadata.get('filename')} error={str(exc)}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=str(exc),
@@ -55,6 +59,9 @@ async def upload_emotion_image(
 
         created_items.append(emotion_helper(created_record))
 
+    logger.info(
+        f"POST /emotions success | user_id={current_user.get('sub')} items_created={len(created_items)}"
+    )    
     return {
         "message": "Emotion analysis record created successfully.",
         "data": created_items,
@@ -72,6 +79,10 @@ async def get_all_emotions(
     cursor = db.emotions.find({"user_id": user_id}) #querying the emotions collection for all records where user_id matches the current user's ID
     records = await cursor.to_list(length=None)
     items = [emotion_helper(record) for record in records] #transform
+    
+    logger.info(
+        f"GET /emotions success | user_id={user_id} items_returned={len(items)}"
+    )
 
     return {"items": items}
 
@@ -92,16 +103,24 @@ async def get_emotion_by_id(
         {"_id": ObjectId(emotion_id), "user_id": current_user.get("sub")}
     )
 
+    logger.warning(
+        f"GET /emotions/{{id}} record not found | user_id={current_user.get('sub')} emotion_id={emotion_id}"
+    )
+
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Emotion record not found.",
         )
+    
+    logger.info(
+        f"GET /emotions/{{id}} success | user_id={current_user.get('sub')} emotion_id={emotion_id}"
+    )
 
     return {"data": emotion_helper(record)}
 
 @router.put("/{emotion_id}", status_code=status.HTTP_200_OK)
-@limiter.limit("2/minute")
+@limiter.limit("5/minute")
 async def update_emotion_record(
     request: Request,
     emotion_id: str,
@@ -117,6 +136,10 @@ async def update_emotion_record(
 
     existing_record = await db.emotions.find_one(
         {"_id": ObjectId(emotion_id), "user_id": current_user.get("sub")}
+    )
+
+    logger.warning(
+        f"PUT /emotions/{{id}} record not found | user_id={current_user.get('sub')} emotion_id={emotion_id}"
     )
 
     if not existing_record:
@@ -139,10 +162,17 @@ async def update_emotion_record(
             content_type=metadata["content_type"],
         )
     except RuntimeError as exc:
+        logger.error(
+           f"PUT /emotions/{{id}} failed during LLM processing | user_id={current_user.get('sub')} emotion_id={emotion_id} error={str(exc)}"
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
+    
+    logger.info(
+       f"PUT /emotions/{{id}} success | user_id={current_user.get('sub')} emotion_id={emotion_id}"
+    )
 
     return {
         "message": "Emotion record updated successfully.",
@@ -151,7 +181,7 @@ async def update_emotion_record(
 
 
 @router.delete("/{emotion_id}", status_code=status.HTTP_200_OK)
-@limiter.limit("2/minute")
+@limiter.limit("5/minute")
 async def delete_emotion_record(
     request: Request,
     emotion_id: str,
@@ -168,10 +198,18 @@ async def delete_emotion_record(
         {"_id": ObjectId(emotion_id), "user_id": current_user.get("sub")}
     )
 
+    logger.warning(
+       f"DELETE /emotions/{{id}} record not found | user_id={current_user.get('sub')} emotion_id={emotion_id}"
+    )
+
     if result.deleted_count == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Emotion record not found.",
         )
+    
+    logger.info(
+        f"DELETE /emotions/{{id}} success | user_id={current_user.get('sub')} emotion_id={emotion_id}"
+    )
 
     return {"message": "Emotion record deleted successfully."}

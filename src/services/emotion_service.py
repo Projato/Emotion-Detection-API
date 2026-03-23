@@ -1,6 +1,6 @@
 #emotion logic service, for actual emotion detection logic, creates emotion record in the database with detected emotion and metadata and inserts
 from __future__ import annotations
-
+from loguru import logger
 import base64
 import json
 import os
@@ -23,6 +23,7 @@ def _get_groq_client() -> AsyncGroq:
     if not api_key:
         raise RuntimeError("Missing API key in environment.")
     return AsyncGroq(api_key=api_key)
+
 
 def _build_data(image_bytes: bytes, content_type: str) -> str:
     encoded = base64.b64encode(image_bytes).decode("utf-8")
@@ -108,6 +109,10 @@ Rules:
         emotion = _normalize_emotion(parsed.get("emotion"))
         emoji = EMOTION_EMOJI_MAP[emotion]
 
+        logger.info(
+            f"Emotion detected successfully | filename={filename} emotion={emotion}"
+        )
+
         return {
             "emotion": emotion,
             "emoji": emoji,
@@ -144,6 +149,10 @@ async def create_emotion_record( #creates a record in the database with the dete
     result = await db.emotions.insert_one(document) #inserts the document into the emotions collection, result contains the inserted_id which is the _id of the new document
     document["_id"] = result.inserted_id
 
+    logger.info(
+    f"Emotion record created | user_id={user_id} filename={filename} emotion={detected['emotion']}"
+    )
+
     return document
 
 async def reanalyze_emotion_record(
@@ -176,6 +185,10 @@ async def reanalyze_emotion_record(
 
     updated_record = await db.emotions.find_one(
         {"_id": emotion_id, "user_id": user_id}
+    )
+
+    logger.info(
+    f"Emotion record updated | user_id={user_id} emotion_id={emotion_id} emotion={detected['emotion']}"
     )
 
     return updated_record

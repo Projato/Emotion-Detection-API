@@ -5,8 +5,10 @@ from contextlib import asynccontextmanager #for managing lifespan events in Fast
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from loguru import logger
+from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-
+from src.utils.errors import generic_exception_handler, rate_limit_exceeded_handler
+from src.utils.logger import setup_logger
 from src.api.dependencies.database import close_mongo_connection, connect_to_mongo
 from src.api.dependencies.limiter import limiter
 from src.api.routers.auth import router as auth_router #auth router for user registration and login, JWT handling, etc.
@@ -41,6 +43,8 @@ app = FastAPI(
 app.state.limiter = limiter 
 app.add_middleware(SlowAPIMiddleware)
 
+app.add_exception_handler(Exception, generic_exception_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 app.include_router(auth_router, prefix=API_V1_PREFIX) #including the auth router under the /api/v1 path; this will handle all authentication related endpoints like registration and login, and will be available at /api/v1/auth/...
 app.include_router(emotions_router, prefix=API_V1_PREFIX) #including the emotions router under the /api/v1 path; this will handle all emotion related endpoints like uploading images and retrieving emotion records, and will be available at /api/v1/emotions/...
